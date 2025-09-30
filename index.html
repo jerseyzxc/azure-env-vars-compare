@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Environment Variables Diff Tool</title>
+    <link rel="stylesheet" href="assets/css/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="app__header">
+        <h1 class="app__title">Environment Variables Diff Tool</h1>
+        <p class="app__description">
+          Paste JSON exports from Azure App Service (name/value arrays) or any platform that delivers
+          environment variables as JSON objects to compare their keys and values side by side.
+        </p>
+      </header>
+
+      <main class="app__main">
+        <section class="editor-grid" aria-label="Environment variable inputs">
+          <article class="editor" aria-labelledby="source-title">
+            <header class="editor__header">
+              <h2 id="source-title" class="editor__title">Source environment</h2>
+            </header>
+            <textarea
+              id="source-input"
+              class="editor__textarea"
+              spellcheck="false"
+              placeholder='{"NAME":"VALUE"}\n[{"name":"Setting","value":"Value"}]'
+              aria-label="Source environment JSON"
+            ></textarea>
+          </article>
+
+          <article class="editor" aria-labelledby="target-title">
+            <header class="editor__header">
+              <h2 id="target-title" class="editor__title">Target environment</h2>
+            </header>
+            <textarea
+              id="target-input"
+              class="editor__textarea"
+              spellcheck="false"
+              placeholder='{"NAME":"VALUE"}\n[{"name":"Setting","value":"Value"}]'
+              aria-label="Target environment JSON"
+            ></textarea>
+          </article>
+        </section>
+
+        <p class="helper-text">
+          Supported formats include objects (<code>{"NAME":"VALUE"}</code>), arrays of name/value objects, and
+          arrays of key/value tuples. Copying preserves the detected format.
+        </p>
+
+        <div class="toolbar" aria-label="Comparison controls">
+          <div class="toolbar__buttons">
+            <button type="button" id="load-sample" class="btn btn--ghost">Load Azure sample</button>
+            <button type="button" id="swap" class="btn btn--ghost">Swap sides</button>
+          </div>
+          <div class="toolbar__buttons">
+            <button type="button" id="clear" class="btn btn--secondary">Clear</button>
+          </div>
+        </div>
+
+        <section class="status-panel" aria-live="polite">
+          <p id="status-message" class="status-panel__message">Paste JSON to begin comparing.</p>
+        </section>
+
+        <section class="results-panel" aria-label="Comparison results">
+          <table id="results-table" class="results-table" hidden>
+            <thead>
+              <tr>
+                <th scope="col" class="results-table__select">Select</th>
+                <th scope="col">Variable</th>
+                <th scope="col">Source value</th>
+                <th scope="col">Target value</th>
+                <th scope="col">Status</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </section>
+
+        <section class="bulk-actions" aria-live="polite">
+          <div class="bulk-actions__summary" id="selection-summary">No variables selected.</div>
+          <div class="bulk-actions__buttons">
+            <button type="button" id="copy-to-source" class="btn btn--secondary btn--small" disabled>
+              Copy to source
+            </button>
+            <button type="button" id="copy-to-target" class="btn btn--secondary btn--small" disabled>
+              Copy to target
+            </button>
+          </div>
+        </section>
+      </main>
+
+      <footer class="app__footer">
+        <div class="legend" aria-label="Legend">
+          <span class="legend__item legend__item--match">✔ Match</span>
+          <span class="legend__item legend__item--different">✖ Different</span>
+          <span class="legend__item legend__item--source">⚠ Only in source</span>
+          <span class="legend__item legend__item--target">⚠ Only in target</span>
+        </div>
+      </footer>
+    </div>
+
+    <script src="assets/js/app.js" defer></script>
+  </body>
+</html>
