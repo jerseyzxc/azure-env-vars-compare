@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Environment Variables Diff Tool</title>
+  <link rel="stylesheet" href="assets/css/styles.css" />
+</head>
+<body>
+  <header class="page-header">
+    <h1>Environment Variables Diff Tool</h1>
+    <p>Compare Azure App Service settings or other JSON-based environment variable exports side-by-side.</p>
+  </header>
+  <main class="page-main">
+    <section class="editor-panel" aria-label="Environment variable inputs">
+      <div class="panel" aria-labelledby="source-title">
+        <header class="panel__header">
+          <h2 id="source-title">Source Environment</h2>
+        </header>
+        <textarea
+          id="left-json"
+          class="panel__editor"
+          placeholder='{"NAME":"VALUE"} or [{"name":"Setting","value":"Value"}]'
+          aria-label="Source environment JSON"
+        ></textarea>
+      </div>
+      <div class="panel" aria-labelledby="target-title">
+        <header class="panel__header">
+          <h2 id="target-title">Target Environment</h2>
+        </header>
+        <textarea
+          id="right-json"
+          class="panel__editor"
+          placeholder='{"NAME":"VALUE"} or [{"name":"Setting","value":"Value"}]'
+          aria-label="Target environment JSON"
+        ></textarea>
+      </div>
+    </section>
+    <p class="helper-text">
+      Tip: Paste raw Azure App Service setting exports (arrays with <code>name</code> and <code>value</code>) or classic key/value JSON objects on either side.
+    </p>
+    <div class="actions">
+      <button id="compare" class="btn">Compare</button>
+      <button id="clear" class="btn btn--secondary">Clear</button>
+      <span class="status" role="status" aria-live="polite" id="status"></span>
+    </div>
+    <div class="table-container" aria-live="polite">
+      <table id="result-table" class="results" hidden>
+        <thead>
+          <tr>
+            <th scope="col" class="results__select-header">Select</th>
+            <th scope="col">Variable</th>
+            <th scope="col">Source Value</th>
+            <th scope="col">Target Value</th>
+            <th scope="col">Result</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="bulk-actions" aria-live="polite">
+      <span id="selection-summary" class="bulk-actions__summary">No variables selected.</span>
+      <div class="bulk-actions__buttons">
+        <button id="copy-to-source" class="btn btn--secondary btn--small" type="button" disabled>
+          Copy to source
+        </button>
+        <button id="copy-to-target" class="btn btn--secondary btn--small" type="button" disabled>
+          Copy to target
+        </button>
+      </div>
+    </div>
+  </main>
+  <footer class="page-footer">
+    <div class="legend">
+      <span class="legend__item legend__item--match">✔ Matched</span>
+      <span class="legend__item legend__item--only-source">⚠ Only in source</span>
+      <span class="legend__item legend__item--only-target">⚠ Only in target</span>
+      <span class="legend__item legend__item--different">✖ Different</span>
+    </div>
+  </footer>
+  <script src="assets/js/app.js" defer></script>
+</body>
+</html>
