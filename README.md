@@ -1,0 +1,1 @@
+This tools is used to compare values from the environment variables in Azure or other platforms in JSON format.
