@@ -1,348 +1,247 @@
-const leftInput = document.getElementById("left-json");
-const rightInput = document.getElementById("right-json");
-const compareButton = document.getElementById("compare");
-const clearButton = document.getElementById("clear");
-const statusEl = document.getElementById("status");
-const resultTable = document.getElementById("result-table");
-const tbody = resultTable.querySelector("tbody");
+(() => {
+  const sourceInput = document.getElementById("source-input");
+  const targetInput = document.getElementById("target-input");
+  const loadSampleButton = document.getElementById("load-sample");
+  const swapButton = document.getElementById("swap");
+  const clearButton = document.getElementById("clear");
+  const statusMessage = document.getElementById("status-message");
+  const resultsTable = document.getElementById("results-table");
+  const resultsBody = resultsTable.querySelector("tbody");
+  const selectionSummary = document.getElementById("selection-summary");
+  const copyToSourceButton = document.getElementById("copy-to-source");
+  const copyToTargetButton = document.getElementById("copy-to-target");
 
-const MISSING_INDICATOR = "—";
+  const MISSING_INDICATOR = "—";
+  const STATUS_CLASSNAMES = {
+    success: "status-panel__message--success",
+    warning: "status-panel__message--warning",
+    error: "status-panel__message--error",
+  };
 
-const toDisplayString = (value) => {
-  if (value === null || value === undefined) {
-    return "";
-  }
+  const state = {
+    selection: new Set(),
+    parses: {
+      source: createEmptyParse(),
+      target: createEmptyParse(),
+    },
+    diffRows: [],
+  };
 
-  if (typeof value === "string") {
-    return value;
-  }
+  const azureSamples = {
+    source: [
+      {
+        name: "AaIntegrationRedirectUrl",
+        value: "https://vipm-clinician-dev.clarifidev.com/integrations/rethink",
+        slotSetting: false,
+      },
+      {
+        name: "AccountsApiClient:ApiBaseUrl",
+        value: "https://app-accounts-service-dev.azurewebsites.net/api/v1/",
+        slotSetting: false,
+      },
+      {
+        name: "AccountsApiClient:ApiKey",
+        value: "be717ee9-24b4-4d11-adf7-e28be4d8ef4a",
+        slotSetting: false,
+      },
+    ],
+    target: [
+      {
+        name: "AaIntegrationRedirectUrl",
+        value: "https://vipm-clinician-prod.clarifidev.com/integrations/rethink",
+        slotSetting: false,
+      },
+      {
+        name: "AccountsApiClient:ApiBaseUrl",
+        value: "https://app-accounts-service.azurewebsites.net/api/v1/",
+        slotSetting: false,
+      },
+      {
+        name: "AccountsApiClient:ApiKey",
+        value: "prod-secret-key",
+        slotSetting: false,
+      },
+      {
+        name: "NewFeatureToggle",
+        value: "true",
+        slotSetting: false,
+      },
+    ],
+  };
 
-  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
-    return String(value);
-  }
-
-  if (typeof value === "object") {
-    try {
-      return JSON.stringify(value);
-    } catch (error) {
-      console.warn("Unable to stringify value", value, error);
-      return String(value);
-    }
-  }
-
-  return String(value ?? "");
-};
-
-const detectFormat = (parsed) => {
-  if (Array.isArray(parsed)) {
-    if (parsed.length === 0) {
-      return "nameValueArray";
-    }
-
-    const nameValueEntries = parsed.filter(
-      (item) => item && typeof item === "object" && !Array.isArray(item) && "name" in item && "value" in item
-    );
-
-    if (nameValueEntries.length === parsed.length) {
-      return "nameValueArray";
-    }
-
-    const pairEntries = parsed.filter((item) => Array.isArray(item) && item.length >= 2);
-    if (pairEntries.length === parsed.length) {
-      return "pairArray";
-    }
-
-    return null;
-  }
-
-  if (parsed && typeof parsed === "object") {
-    return "object";
-  }
-
-  return null;
-};
-
-const buildNormalizedMap = (parsed, format) => {
-  if (format === "object") {
-    return Object.fromEntries(
-      Object.entries(parsed).map(([key, value]) => [String(key), toDisplayString(value)])
-    );
-  }
-
-  if (format === "nameValueArray") {
-    const result = {};
-    parsed.forEach((item) => {
-      if (!item || typeof item !== "object" || Array.isArray(item)) {
-        return;
-      }
-
-      if ("name" in item) {
-        result[String(item.name)] = toDisplayString(item.value);
-      }
-    });
-    return result;
-  }
-
-  if (format === "pairArray") {
-    const result = {};
-    parsed.forEach((pair) => {
-      if (!Array.isArray(pair) || pair.length < 2) {
-        return;
-      }
-      result[String(pair[0])] = toDisplayString(pair[1]);
-    });
-    return result;
-  }
-
-  return {};
-};
-
-const parseInput = (input) => {
-  const trimmed = input.trim();
-  if (!trimmed) {
+  function createEmptyParse() {
     return {
+      format: "empty",
       normalized: {},
       original: {},
-      format: "empty",
+      text: "",
     };
   }
 
-  try {
-    const parsed = JSON.parse(trimmed);
-    const format = detectFormat(parsed);
-    if (!format) {
-      throw new Error("Unsupported JSON structure. Use an object or an array with name/value pairs.");
+  function setStatus(message, tone = "warning") {
+    statusMessage.textContent = message;
+    Object.values(STATUS_CLASSNAMES).forEach((className) => {
+      statusMessage.classList.remove(className);
+    });
+    const className = STATUS_CLASSNAMES[tone];
+    if (className) {
+      statusMessage.classList.add(className);
+    }
+  }
+
+  function toDisplayString(value) {
+    if (value === null || value === undefined) {
+      return "";
     }
 
-    return {
-      normalized: buildNormalizedMap(parsed, format),
-      original: parsed,
-      format,
-    };
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      throw new Error(`Invalid JSON: ${error.message}`);
+    if (typeof value === "string") {
+      return value;
     }
-    throw error;
-  }
-};
 
-const classifyRow = (leftValue, rightValue) => {
-  if (leftValue === undefined && rightValue === undefined) {
-    return { className: "", statusLabel: "" };
-  }
+    if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+      return String(value);
+    }
 
-  if (leftValue === undefined) {
-    return { className: "only-target", statusLabel: "Only in target" };
-  }
-
-  if (rightValue === undefined) {
-    return { className: "only-source", statusLabel: "Only in source" };
-  }
-
-  if (leftValue === rightValue) {
-    return { className: "match", statusLabel: "Match" };
-  }
-
-  return { className: "different", statusLabel: "Different" };
-};
-
-const createValueCell = (value) => {
-  const cell = document.createElement("td");
-  if (value === undefined) {
-    cell.textContent = MISSING_INDICATOR;
-    cell.classList.add("missing-value");
-  } else {
-    cell.textContent = value;
-  }
-  return cell;
-};
-
-const createActionButton = (direction, label, icon, key) => {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "action-button";
-  button.dataset.action = "copy";
-  button.dataset.direction = direction;
-  button.dataset.key = key;
-  button.title = label;
-  button.innerHTML = `<span aria-hidden="true">${icon}</span><span>${label}</span>`;
-  return button;
-};
-
-const createActionsCell = (leftValue, rightValue, key) => {
-  const cell = document.createElement("td");
-  if (leftValue === undefined && rightValue === undefined) {
-    cell.textContent = MISSING_INDICATOR;
-    cell.classList.add("missing-value");
-    return cell;
-  }
-
-  const container = document.createElement("div");
-  container.className = "results__actions";
-
-  if (rightValue !== undefined) {
-    container.appendChild(createActionButton("to-left", "Copy to source", "←", key));
-  }
-
-  if (leftValue !== undefined) {
-    container.appendChild(createActionButton("to-right", "Copy to target", "→", key));
-  }
-
-  if (!container.children.length) {
-    cell.textContent = MISSING_INDICATOR;
-    cell.classList.add("missing-value");
-    return cell;
-  }
-
-  cell.appendChild(container);
-  return cell;
-};
-
-const cloneArray = (array) => array.map((item) => {
-  if (Array.isArray(item)) {
-    return item.slice();
-  }
-  if (item && typeof item === "object") {
-    return { ...item };
-  }
-  return item;
-});
-
-const applyValueToStructure = (parseResult, key, value, preferredFormat) => {
-  const format = parseResult.format === "empty" ? preferredFormat || "object" : parseResult.format;
-  let updatedStructure;
-
-  if (format === "object") {
-    const base = parseResult.format === "empty" ? {} : { ...parseResult.original };
-    base[key] = value;
-    updatedStructure = base;
-  } else if (format === "nameValueArray") {
-    const base = Array.isArray(parseResult.original) ? cloneArray(parseResult.original) : [];
-    const index = base.findIndex(
-      (item) => item && typeof item === "object" && !Array.isArray(item) && String(item.name) === key
-    );
-
-    if (index >= 0) {
-      base[index] = { ...base[index], name: key, value };
-    } else {
-      const template = base.find((item) => item && typeof item === "object" && !Array.isArray(item));
-      if (template) {
-        const newEntry = { ...template };
-        Object.keys(newEntry).forEach((entryKey) => {
-          if (entryKey !== "name" && entryKey !== "value") {
-            newEntry[entryKey] = template[entryKey];
-          }
-        });
-        newEntry.name = key;
-        newEntry.value = value;
-        base.push(newEntry);
-      } else {
-        base.push({ name: key, value, slotSetting: false });
+    if (typeof value === "object") {
+      try {
+        return JSON.stringify(value);
+      } catch (error) {
+        console.warn("Unable to stringify value", value, error);
+        return String(value);
       }
     }
 
-    updatedStructure = base;
-  } else if (format === "pairArray") {
-    const base = Array.isArray(parseResult.original) ? cloneArray(parseResult.original) : [];
-    const index = base.findIndex((item) => Array.isArray(item) && String(item[0]) === key);
-    if (index >= 0) {
-      const pair = Array.isArray(base[index]) ? base[index].slice() : [];
-      pair[0] = key;
-      pair[1] = value;
-      base[index] = pair;
-    } else {
-      base.push([key, value]);
+    return String(value ?? "");
+  }
+
+  function detectFormat(parsed) {
+    if (Array.isArray(parsed)) {
+      if (parsed.length === 0) {
+        return "nameValueArray";
+      }
+
+      const everyNameValue = parsed.every(
+        (entry) => entry && typeof entry === "object" && !Array.isArray(entry) && "name" in entry && "value" in entry
+      );
+      if (everyNameValue) {
+        return "nameValueArray";
+      }
+
+      const everyPair = parsed.every((entry) => Array.isArray(entry) && entry.length >= 2);
+      if (everyPair) {
+        return "pairArray";
+      }
+
+      return null;
     }
-    updatedStructure = base;
-  } else {
-    throw new Error("Unsupported target format for copy action.");
-  }
 
-  return {
-    text: JSON.stringify(updatedStructure, null, 2),
-    format,
-  };
-};
+    if (parsed && typeof parsed === "object") {
+      return "object";
+    }
 
-const summarizeStats = (stats, total) => {
-  const parts = [];
-  if (stats.match) {
-    parts.push(`${stats.match} match${stats.match === 1 ? "" : "es"}`);
-  }
-  if (stats.different) {
-    parts.push(`${stats.different} different value${stats.different === 1 ? "" : "s"}`);
-  }
-  if (stats.onlySource) {
-    parts.push(`${stats.onlySource} only in source`);
-  }
-  if (stats.onlyTarget) {
-    parts.push(`${stats.onlyTarget} only in target`);
-  }
-
-  const suffix = parts.length ? ` (${parts.join(", ")})` : "";
-  return `Compared ${total} variable${total === 1 ? "" : "s"}.${suffix}`;
-};
-
-const compare = () => {
-  statusEl.textContent = "";
-  statusEl.classList.remove("error");
-  tbody.innerHTML = "";
-
-  let leftData;
-  let rightData;
-
-  try {
-    leftData = parseInput(leftInput.value);
-    rightData = parseInput(rightInput.value);
-  } catch (error) {
-    statusEl.textContent = error.message;
-    statusEl.classList.add("error");
-    resultTable.hidden = true;
     return null;
   }
 
-  const allKeys = new Set([
-    ...Object.keys(leftData.normalized),
-    ...Object.keys(rightData.normalized),
-  ]);
+  function buildNormalizedMap(parsed, format) {
+    if (format === "object") {
+      return Object.fromEntries(
+        Object.entries(parsed).map(([key, value]) => [String(key), toDisplayString(value)])
+      );
+    }
 
-  if (allKeys.size === 0) {
-    statusEl.textContent = "No variables detected. Paste JSON into the panels and compare again.";
-    resultTable.hidden = true;
-    return null;
+    if (format === "nameValueArray") {
+      const result = {};
+      parsed.forEach((entry) => {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+          return;
+        }
+
+        if ("name" in entry) {
+          result[String(entry.name)] = toDisplayString(entry.value);
+        }
+      });
+      return result;
+    }
+
+    if (format === "pairArray") {
+      const result = {};
+      parsed.forEach((entry) => {
+        if (!Array.isArray(entry) || entry.length < 2) {
+          return;
+        }
+        result[String(entry[0])] = toDisplayString(entry[1]);
+      });
+      return result;
+    }
+
+    return {};
   }
 
-  const stats = {
-    match: 0,
-    different: 0,
-    onlySource: 0,
-    onlyTarget: 0,
-  };
+  function parseEnvironment(text) {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return createEmptyParse();
+    }
 
-  Array.from(allKeys)
-    .sort((a, b) => a.localeCompare(b))
-    .forEach((key) => {
-      const leftValue = leftData.normalized[key];
-      const rightValue = rightData.normalized[key];
-      const { className, statusLabel } = classifyRow(leftValue, rightValue);
+    try {
+      const parsed = JSON.parse(trimmed);
+      const format = detectFormat(parsed);
+      if (!format) {
+        throw new Error(
+          "Unsupported JSON structure. Use an object or an array of objects with name/value pairs."
+        );
+      }
 
-      const row = document.createElement("tr");
-      row.className = className;
-      row.dataset.key = key;
+      return {
+        format,
+        original: parsed,
+        normalized: buildNormalizedMap(parsed, format),
+        text,
+      };
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        throw new Error(`Invalid JSON: ${error.message}`);
+      }
+      throw error;
+    }
+  }
 
-      const nameCell = document.createElement("td");
-      nameCell.textContent = key;
-      row.appendChild(nameCell);
+  function classifyRow(leftValue, rightValue) {
+    if (leftValue === undefined && rightValue === undefined) {
+      return { className: "", label: "" };
+    }
 
-      row.appendChild(createValueCell(leftValue));
-      row.appendChild(createValueCell(rightValue));
+    if (leftValue === undefined) {
+      return { className: "only-target", label: "Only in target" };
+    }
 
-      const statusCell = document.createElement("td");
-      statusCell.textContent = statusLabel;
-      row.appendChild(statusCell);
+    if (rightValue === undefined) {
+      return { className: "only-source", label: "Only in source" };
+    }
 
-      row.appendChild(createActionsCell(leftValue, rightValue, key));
+    if (leftValue === rightValue) {
+      return { className: "match", label: "Match" };
+    }
+
+    return { className: "different", label: "Different" };
+  }
+
+  function buildDiff(leftMap, rightMap) {
+    const allKeys = new Set([...Object.keys(leftMap), ...Object.keys(rightMap)]);
+    const sortedKeys = Array.from(allKeys).sort((a, b) => a.localeCompare(b));
+
+    const rows = [];
+    const stats = {
+      match: 0,
+      different: 0,
+      onlySource: 0,
+      onlyTarget: 0,
+    };
+
+    sortedKeys.forEach((key) => {
+      const leftValue = leftMap[key];
+      const rightValue = rightMap[key];
+      const { className, label } = classifyRow(leftValue, rightValue);
 
       if (className === "match") {
         stats.match += 1;
@@ -354,127 +253,328 @@ const compare = () => {
         stats.onlyTarget += 1;
       }
 
-      tbody.appendChild(row);
+      rows.push({
+        key,
+        leftValue,
+        rightValue,
+        className,
+        label,
+      });
     });
 
-  resultTable.hidden = false;
-  const summary = summarizeStats(stats, allKeys.size);
-  statusEl.textContent = summary;
-  return summary;
-};
-
-compareButton.addEventListener("click", () => {
-  compare();
-});
-
-clearButton.addEventListener("click", () => {
-  leftInput.value = "";
-  rightInput.value = "";
-  tbody.innerHTML = "";
-  resultTable.hidden = true;
-  statusEl.textContent = "Cleared inputs.";
-  statusEl.classList.remove("error");
-  leftInput.focus();
-});
-
-tbody.addEventListener("click", (event) => {
-  const target = event.target.closest("button[data-action=\"copy\"]");
-  if (!target) {
-    return;
+    return { rows, stats, total: sortedKeys.length };
   }
 
-  const direction = target.dataset.direction;
-  const key = target.dataset.key;
-  if (!direction || !key) {
-    return;
+  function createValueCell(value) {
+    const cell = document.createElement("td");
+    if (value === undefined) {
+      cell.textContent = MISSING_INDICATOR;
+      cell.classList.add("missing-value");
+    } else {
+      cell.textContent = value;
+    }
+    return cell;
   }
 
-  const copyFromRight = direction === "to-left";
-  const sourceInput = copyFromRight ? rightInput : leftInput;
-  const targetInput = copyFromRight ? leftInput : rightInput;
+  function createSelectionCell(key) {
+    const cell = document.createElement("td");
+    cell.className = "results-table__select";
 
-  try {
-    const sourceData = parseInput(sourceInput.value);
-    const targetData = parseInput(targetInput.value);
-    const sourceValue = sourceData.normalized[key];
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.dataset.key = key;
+    checkbox.checked = state.selection.has(key);
+    checkbox.setAttribute("aria-label", `Select ${key}`);
 
-    if (sourceValue === undefined) {
-      statusEl.textContent = `Cannot copy ${key}: the value is missing on the source side.`;
-      statusEl.classList.add("error");
+    cell.appendChild(checkbox);
+    return cell;
+  }
+
+  function renderResults(rows) {
+    resultsBody.innerHTML = "";
+    if (rows.length === 0) {
+      resultsTable.hidden = true;
       return;
     }
 
-    const update = applyValueToStructure(
-      targetData,
-      key,
-      sourceValue,
-      sourceData.format === "empty" ? undefined : sourceData.format
-    );
+    const fragment = document.createDocumentFragment();
+    rows.forEach((row) => {
+      const tableRow = document.createElement("tr");
+      if (row.className) {
+        tableRow.classList.add(row.className);
+      }
+      tableRow.dataset.key = row.key;
 
-    targetInput.value = update.text;
-    const summary = compare();
-    if (summary) {
-      const destinationLabel = copyFromRight ? "source" : "target";
-      statusEl.textContent = `Copied ${key} to the ${destinationLabel} environment. ${summary}`;
-      statusEl.classList.remove("error");
-    }
-  } catch (error) {
-    statusEl.textContent = error.message;
-    statusEl.classList.add("error");
+      tableRow.appendChild(createSelectionCell(row.key));
+
+      const keyCell = document.createElement("td");
+      keyCell.textContent = row.key;
+      tableRow.appendChild(keyCell);
+
+      tableRow.appendChild(createValueCell(row.leftValue));
+      tableRow.appendChild(createValueCell(row.rightValue));
+
+      const statusCell = document.createElement("td");
+      statusCell.textContent = row.label;
+      tableRow.appendChild(statusCell);
+
+      fragment.appendChild(tableRow);
+    });
+
+    resultsBody.appendChild(fragment);
+    resultsTable.hidden = false;
   }
-});
 
-const azureSampleSource = [
-  {
-    name: "AaIntegrationRedirectUrl",
-    value: "https://vipm-clinician-dev.clarifidev.com/integrations/rethink",
-    slotSetting: false,
-  },
-  {
-    name: "AccountsApiClient:ApiBaseUrl",
-    value: "https://app-accounts-service-dev.azurewebsites.net/api/v1/",
-    slotSetting: false,
-  },
-  {
-    name: "AccountsApiClient:ApiKey",
-    value: "be717ee9-24b4-4d11-adf7-e28be4d8ef4a",
-    slotSetting: false,
-  },
-  {
-    name: "FeatureToggle:NewHomePage",
-    value: "true",
-    slotSetting: false,
-  },
-];
+  function updateSelectionSummary() {
+    const count = state.selection.size;
+    if (count === 0) {
+      selectionSummary.textContent = "No variables selected.";
+    } else {
+      selectionSummary.textContent = `${count} variable${count === 1 ? "" : "s"} selected.`;
+    }
 
-const azureSampleTarget = [
-  {
-    name: "AaIntegrationRedirectUrl",
-    value: "https://vipm-clinician-prod.clarifidev.com/integrations/rethink",
-    slotSetting: false,
-  },
-  {
-    name: "AccountsApiClient:ApiBaseUrl",
-    value: "https://app-accounts-service.azurewebsites.net/api/v1/",
-    slotSetting: false,
-  },
-  {
-    name: "AccountsApiClient:ApiKey",
-    value: "prod-secret-key",
-    slotSetting: false,
-  },
-  {
-    name: "FeatureToggle:NewHomePage",
-    value: "false",
-    slotSetting: false,
-  },
-  {
-    name: "NewSetting",
-    value: "Enabled",
-    slotSetting: false,
-  },
-];
+    const disable = count === 0;
+    copyToSourceButton.disabled = disable;
+    copyToTargetButton.disabled = disable;
+  }
 
-leftInput.value = JSON.stringify(azureSampleSource, null, 2);
-rightInput.value = JSON.stringify(azureSampleTarget, null, 2);
-compare();
+  function pruneSelection(validKeys) {
+    const valid = new Set(validKeys);
+    Array.from(state.selection).forEach((key) => {
+      if (!valid.has(key)) {
+        state.selection.delete(key);
+      }
+    });
+  }
+
+  function summarizeStats(stats, total) {
+    if (total === 0) {
+      return "No variables detected. Paste JSON to compare.";
+    }
+
+    const parts = [];
+    if (stats.match) {
+      parts.push(`${stats.match} match${stats.match === 1 ? "" : "es"}`);
+    }
+    if (stats.different) {
+      parts.push(`${stats.different} different value${stats.different === 1 ? "" : "s"}`);
+    }
+    if (stats.onlySource) {
+      parts.push(`${stats.onlySource} only in source`);
+    }
+    if (stats.onlyTarget) {
+      parts.push(`${stats.onlyTarget} only in target`);
+    }
+
+    const suffix = parts.length ? ` (${parts.join(", ")})` : "";
+    return `Compared ${total} variable${total === 1 ? "" : "s"}.${suffix}`;
+  }
+
+  function refreshDiff(options = {}) {
+    const sourceText = sourceInput.value;
+    const targetText = targetInput.value;
+
+    try {
+      const sourceParse = parseEnvironment(sourceText);
+      const targetParse = parseEnvironment(targetText);
+
+      state.parses.source = sourceParse;
+      state.parses.target = targetParse;
+
+      const { rows, stats, total } = buildDiff(sourceParse.normalized, targetParse.normalized);
+      state.diffRows = rows;
+
+      pruneSelection(rows.map((row) => row.key));
+      renderResults(rows);
+      updateSelectionSummary();
+
+      if (total === 0) {
+        setStatus("Paste JSON to begin comparing.", "warning");
+        return;
+      }
+
+      const summary = summarizeStats(stats, total);
+      const tone = stats.different === 0 && stats.onlySource === 0 && stats.onlyTarget === 0 ? "success" : "warning";
+      setStatus(summary, tone);
+    } catch (error) {
+      state.parses.source = createEmptyParse();
+      state.parses.target = createEmptyParse();
+      state.diffRows = [];
+      state.selection.clear();
+      renderResults([]);
+      updateSelectionSummary();
+      setStatus(error.message, "error");
+    }
+  }
+
+  function cloneArray(array) {
+    return array.map((item) => {
+      if (Array.isArray(item)) {
+        return item.slice();
+      }
+      if (item && typeof item === "object") {
+        return { ...item };
+      }
+      return item;
+    });
+  }
+
+  function applyValueToStructure(parseResult, key, value, preferredFormat) {
+    const format = parseResult.format === "empty" ? preferredFormat || "object" : parseResult.format;
+    let updatedStructure;
+
+    if (format === "object") {
+      const base = parseResult.format === "empty" ? {} : { ...parseResult.original };
+      base[key] = value;
+      updatedStructure = base;
+    } else if (format === "nameValueArray") {
+      const base = Array.isArray(parseResult.original) ? cloneArray(parseResult.original) : [];
+      const index = base.findIndex(
+        (item) => item && typeof item === "object" && !Array.isArray(item) && String(item.name) === key
+      );
+
+      if (index >= 0) {
+        base[index] = { ...base[index], name: key, value };
+      } else {
+        const template = base.find((item) => item && typeof item === "object" && !Array.isArray(item));
+        if (template) {
+          const newEntry = { ...template };
+          Object.keys(newEntry).forEach((entryKey) => {
+            if (entryKey !== "name" && entryKey !== "value") {
+              newEntry[entryKey] = template[entryKey];
+            }
+          });
+          newEntry.name = key;
+          newEntry.value = value;
+          base.push(newEntry);
+        } else {
+          base.push({ name: key, value, slotSetting: false });
+        }
+      }
+
+      updatedStructure = base;
+    } else if (format === "pairArray") {
+      const base = Array.isArray(parseResult.original) ? cloneArray(parseResult.original) : [];
+      const index = base.findIndex((item) => Array.isArray(item) && String(item[0]) === key);
+      if (index >= 0) {
+        const pair = Array.isArray(base[index]) ? base[index].slice() : [];
+        pair[0] = key;
+        pair[1] = value;
+        base[index] = pair;
+      } else {
+        base.push([key, value]);
+      }
+      updatedStructure = base;
+    } else {
+      throw new Error("Unsupported target format for copy action.");
+    }
+
+    return {
+      text: JSON.stringify(updatedStructure, null, 2),
+      format,
+    };
+  }
+
+  function copySelected(direction) {
+    if (state.selection.size === 0) {
+      return;
+    }
+
+    const copyingToSource = direction === "source";
+    const fromParse = copyingToSource ? state.parses.target : state.parses.source;
+    const toParse = copyingToSource ? state.parses.source : state.parses.target;
+    const toInput = copyingToSource ? sourceInput : targetInput;
+    const destinationLabel = copyingToSource ? "source" : "target";
+    const originLabel = copyingToSource ? "target" : "source";
+
+    const keys = Array.from(state.selection);
+    const missingKeys = [];
+    let copiedCount = 0;
+    let updatedParse = toParse;
+
+    keys.forEach((key) => {
+      const value = fromParse.normalized[key];
+      if (value === undefined) {
+        missingKeys.push(key);
+        return;
+      }
+
+      const update = applyValueToStructure(updatedParse, key, value, fromParse.format === "empty" ? undefined : fromParse.format);
+      toInput.value = update.text;
+      updatedParse = parseEnvironment(update.text);
+      copiedCount += 1;
+    });
+
+    refreshDiff();
+
+    if (copiedCount === 0) {
+      setStatus(
+        `No values copied. None of the selected variables exist on the ${originLabel} side.`,
+        "warning"
+      );
+      return;
+    }
+
+    let message = `Copied ${copiedCount} variable${copiedCount === 1 ? "" : "s"} to the ${destinationLabel} environment.`;
+    if (missingKeys.length) {
+      message += ` Skipped ${missingKeys.length} missing on the ${originLabel} side (${missingKeys.join(", ")}).`;
+    }
+    setStatus(message, "success");
+  }
+
+  function handleSelectionChange(event) {
+    const checkbox = event.target;
+    if (!checkbox.matches('input[type="checkbox"][data-key]')) {
+      return;
+    }
+
+    const key = checkbox.dataset.key;
+    if (!key) {
+      return;
+    }
+
+    if (checkbox.checked) {
+      state.selection.add(key);
+    } else {
+      state.selection.delete(key);
+    }
+
+    updateSelectionSummary();
+  }
+
+  function loadSamples() {
+    sourceInput.value = JSON.stringify(azureSamples.source, null, 2);
+    targetInput.value = JSON.stringify(azureSamples.target, null, 2);
+    refreshDiff();
+  }
+
+  function swapInputs() {
+    const sourceText = sourceInput.value;
+    sourceInput.value = targetInput.value;
+    targetInput.value = sourceText;
+    refreshDiff();
+  }
+
+  function clearInputs() {
+    sourceInput.value = "";
+    targetInput.value = "";
+    state.selection.clear();
+    refreshDiff();
+    setStatus("Cleared inputs.", "warning");
+  }
+
+  function initialize() {
+    sourceInput.addEventListener("input", () => refreshDiff());
+    targetInput.addEventListener("input", () => refreshDiff());
+    resultsBody.addEventListener("change", handleSelectionChange);
+    copyToSourceButton.addEventListener("click", () => copySelected("source"));
+    copyToTargetButton.addEventListener("click", () => copySelected("target"));
+    loadSampleButton.addEventListener("click", loadSamples);
+    swapButton.addEventListener("click", swapInputs);
+    clearButton.addEventListener("click", clearInputs);
+
+    loadSamples();
+  }
+
+  initialize();
+})();
