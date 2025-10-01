@@ -265,14 +265,28 @@
     return { rows, stats, total: sortedKeys.length };
   }
 
-  function createValueCell(value) {
+  function createValueCell(value, key, side) {
     const cell = document.createElement("td");
+    cell.className = "results-table__value";
+
     if (value === undefined) {
-      cell.textContent = MISSING_INDICATOR;
-      cell.classList.add("missing-value");
-    } else {
-      cell.textContent = value;
+      cell.classList.add("results-table__value--missing");
     }
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "results-table__value-input";
+    input.dataset.key = key;
+    input.dataset.side = side;
+    input.placeholder = value === undefined ? MISSING_INDICATOR : "";
+    input.value = value === undefined ? "" : value;
+    input.title = value === undefined ? "Not present" : value;
+    input.setAttribute(
+      "aria-label",
+      `${side === "source" ? "Source" : "Target"} value for ${key}`
+    );
+
+    cell.appendChild(input);
     return cell;
   }
 
@@ -311,8 +325,8 @@
       keyCell.textContent = row.key;
       tableRow.appendChild(keyCell);
 
-      tableRow.appendChild(createValueCell(row.leftValue));
-      tableRow.appendChild(createValueCell(row.rightValue));
+      tableRow.appendChild(createValueCell(row.leftValue, row.key, "source"));
+      tableRow.appendChild(createValueCell(row.rightValue, row.key, "target"));
 
       const statusCell = document.createElement("td");
       statusCell.textContent = row.label;
@@ -542,6 +556,62 @@
     updateSelectionSummary();
   }
 
+  function handleValueInput(event) {
+    const input = event.target;
+    if (!input.classList.contains("results-table__value-input")) {
+      return;
+    }
+
+    const { key, side } = input.dataset;
+    if (!key || (side !== "source" && side !== "target")) {
+      return;
+    }
+
+    const parse = state.parses[side];
+    const otherParse = state.parses[side === "source" ? "target" : "source"];
+    const preferredFormat =
+      parse.format !== "empty"
+        ? parse.format
+        : otherParse.format !== "empty"
+        ? otherParse.format
+        : undefined;
+
+    const selectionStart = input.selectionStart ?? input.value.length;
+    const selectionEnd = input.selectionEnd ?? input.value.length;
+
+    try {
+      const update = applyValueToStructure(parse, key, input.value, preferredFormat);
+      const destinationInput = side === "source" ? sourceInput : targetInput;
+      destinationInput.value = update.text;
+      refreshDiff();
+
+      const restoreFocus = () => {
+        const escapedKey =
+          typeof CSS !== "undefined" && typeof CSS.escape === "function"
+            ? CSS.escape(key)
+            : key.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+        const selector = `.results-table__value-input[data-key="${escapedKey}"][data-side="${side}"]`;
+        const nextInput = resultsBody.querySelector(selector);
+        if (nextInput) {
+          nextInput.focus();
+          try {
+            nextInput.setSelectionRange(selectionStart, selectionEnd);
+          } catch (error) {
+            // Some input types may not support selection ranges; safely ignore.
+          }
+        }
+      };
+
+      if (typeof queueMicrotask === "function") {
+        queueMicrotask(restoreFocus);
+      } else {
+        setTimeout(restoreFocus, 0);
+      }
+    } catch (error) {
+      setStatus(error.message, "error");
+    }
+  }
+
   function loadSamples() {
     sourceInput.value = JSON.stringify(azureSamples.source, null, 2);
     targetInput.value = JSON.stringify(azureSamples.target, null, 2);
@@ -567,6 +637,7 @@
     sourceInput.addEventListener("input", () => refreshDiff());
     targetInput.addEventListener("input", () => refreshDiff());
     resultsBody.addEventListener("change", handleSelectionChange);
+    resultsBody.addEventListener("input", handleValueInput);
     copyToSourceButton.addEventListener("click", () => copySelected("source"));
     copyToTargetButton.addEventListener("click", () => copySelected("target"));
     loadSampleButton.addEventListener("click", loadSamples);
