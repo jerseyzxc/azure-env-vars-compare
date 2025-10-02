@@ -422,6 +422,8 @@
   }
 
   function refreshDiff(options = {}) {
+    const { suppressStatus = false } = options;
+
     persistCurrentState();
 
     const sourceText = sourceInput.value;
@@ -442,6 +444,10 @@
       syncExpandedEditor();
       updateSelectionSummary();
 
+      if (suppressStatus) {
+        return;
+      }
+
       if (total === 0) {
         setStatus("Paste JSON to begin comparing.", "warning");
         return;
@@ -460,6 +466,42 @@
       closeExpandedEditor();
       setStatus(error.message, "error");
     }
+  }
+
+  let scheduledRefreshHandle = null;
+  let scheduledRefreshOptions = null;
+
+  function scheduleRefresh(options = {}) {
+    scheduledRefreshOptions = { ...(scheduledRefreshOptions || {}), ...options };
+    if (scheduledRefreshHandle !== null) {
+      return;
+    }
+
+    const run = () => {
+      scheduledRefreshHandle = null;
+      const opts = scheduledRefreshOptions || {};
+      scheduledRefreshOptions = null;
+      refreshDiff(opts);
+    };
+
+    if (typeof requestAnimationFrame === "function") {
+      scheduledRefreshHandle = requestAnimationFrame(run);
+    } else {
+      scheduledRefreshHandle = setTimeout(run, 16);
+    }
+  }
+
+  function cancelScheduledRefresh() {
+    if (scheduledRefreshHandle !== null) {
+      if (typeof cancelAnimationFrame === "function") {
+        cancelAnimationFrame(scheduledRefreshHandle);
+      } else {
+        clearTimeout(scheduledRefreshHandle);
+      }
+    }
+
+    scheduledRefreshHandle = null;
+    scheduledRefreshOptions = null;
   }
 
   function cloneArray(array) {
@@ -560,7 +602,7 @@
       copiedCount += 1;
     });
 
-    refreshDiff();
+    scheduleRefresh({ suppressStatus: true });
 
     if (copiedCount === 0) {
       setStatus(
@@ -626,7 +668,7 @@
       const destinationInput = side === "source" ? sourceInput : targetInput;
       destinationInput.value = update.text;
 
-      refreshDiff();
+      scheduleRefresh();
 
       const restoreTableFocus = () => {
         const nextInput = getValueInputElement(key, side);
@@ -914,6 +956,7 @@
     const sourceText = sourceInput.value;
     sourceInput.value = targetInput.value;
     targetInput.value = sourceText;
+    cancelScheduledRefresh();
     refreshDiff();
   }
 
@@ -922,13 +965,14 @@
     sourceInput.value = "";
     targetInput.value = "";
     state.selection.clear();
-    refreshDiff();
+    cancelScheduledRefresh();
+    refreshDiff({ suppressStatus: true });
     setStatus("Cleared inputs.", "warning");
   }
 
   function initialize() {
-    sourceInput.addEventListener("input", () => refreshDiff());
-    targetInput.addEventListener("input", () => refreshDiff());
+    sourceInput.addEventListener("input", () => scheduleRefresh());
+    targetInput.addEventListener("input", () => scheduleRefresh());
     resultsBody.addEventListener("change", handleSelectionChange);
     resultsBody.addEventListener("input", handleValueInput);
     resultsBody.addEventListener("focusin", handleValueFocus);
@@ -972,6 +1016,7 @@
     document.addEventListener("keydown", handleGlobalKeydown);
 
     restorePersistedState();
+    cancelScheduledRefresh();
     refreshDiff();
   }
 
